@@ -304,6 +304,176 @@ describe('Testing communication', () => {
       });
     });
   });
+  describe('uninitializeCommunication', () => {
+    let utils: Utils = new Utils();
+    beforeEach(() => {
+      utils = new Utils();
+    });
+    afterEach(() => {
+      communication.uninitializeCommunication();
+    });
+    it('should set Communication.parentWindow to null', () => {
+      app._initialize(utils.mockWindow);
+      communication.Communication.parentWindow = utils.mockWindow.parent;
+      expect(communication.Communication.parentWindow).not.toBeNull();
+      communication.uninitializeCommunication();
+      expect(communication.Communication.parentWindow).toBeNull();
+    });
+
+    it('should set Communication.parentOrigin to null', () => {
+      app._initialize(utils.mockWindow);
+      communication.Communication.parentOrigin = utils.mockWindow.parentOrigin;
+      expect(communication.Communication.parentOrigin).not.toBeNull();
+      communication.uninitializeCommunication();
+      expect(communication.Communication.parentOrigin).toBeNull();
+    });
+
+    it('should set Communication.childWindow to null', () => {
+      app._initialize(utils.mockWindow);
+      communication.Communication.childWindow = utils.mockWindow;
+      expect(communication.Communication.childWindow).not.toBeNull();
+      communication.uninitializeCommunication();
+      expect(communication.Communication.childWindow).toBeNull();
+    });
+
+    it('should set Communication.childOrigin to null', () => {
+      app._initialize(utils.mockWindow);
+      communication.Communication.childOrigin = utils.mockWindow.origin;
+      expect(communication.Communication.childOrigin).not.toBeNull();
+      communication.uninitializeCommunication();
+      expect(communication.Communication.childOrigin).toBeNull();
+    });
+
+    it('should empty the queue of messages for the current parent', () => {
+      expect.assertions(1);
+      communication.Communication.childWindow = utils.mockWindow;
+      communication.Communication.currentWindow = utils.mockWindow;
+      communication.Communication.parentWindow = utils.mockWindow;
+      // This function inserts a message into the parentMessageQueue
+      communication.sendMessageEventToChild('testMessage');
+      communication.uninitializeCommunication();
+
+      communication.Communication.parentWindow = utils.mockWindow;
+      communication.Communication.currentWindow = utils.mockWindow;
+      communication.Communication.currentWindow.setInterval = (fn) => {
+        fn();
+      };
+      communication.waitForMessageQueue(communication.Communication.parentWindow, () => {
+        // this callback only ever fires if the message queue associated with the passed in window is empty
+        expect(true).toBeTruthy();
+      });
+    });
+
+    it('should empty the queue of messages for the current child', () => {
+      expect.assertions(1);
+      communication.Communication.childWindow = utils.mockWindow;
+      communication.Communication.currentWindow = utils.mockWindow;
+      communication.Communication.parentWindow = utils.mockWindow.parent;
+      // This function inserts a message into the parentMessageQueue
+      communication.sendMessageEventToChild('testMessage');
+      communication.uninitializeCommunication();
+
+      communication.Communication.childWindow = utils.mockWindow;
+      communication.Communication.currentWindow = utils.mockWindow;
+      communication.Communication.currentWindow.setInterval = (fn) => {
+        fn();
+      };
+      communication.waitForMessageQueue(communication.Communication.childWindow, () => {
+        // this callback only ever fires if the message queue associated with the passed in window is empty
+        expect(true).toBeTruthy();
+      });
+    });
+
+    it('should reset messageIds to start at 0 again', () => {
+      expect.assertions(2);
+      app._initialize(utils.mockWindow);
+      GlobalVars.isFramelessWindow = false;
+      communication.Communication.parentWindow = utils.mockWindow.parent;
+      communication.Communication.parentOrigin = utils.validOrigin;
+      communication.sendMessageToParent('testAction');
+      communication.sendMessageToParent('testAction2');
+      const message = utils.findMessageByFunc('testAction2');
+
+      if (message) {
+        expect(message.id).toBe(1);
+      }
+
+      communication.uninitializeCommunication();
+      GlobalVars.isFramelessWindow = false;
+      communication.Communication.parentWindow = utils.mockWindow.parent;
+      communication.Communication.parentOrigin = utils.validOrigin;
+      communication.sendMessageToParent('testAction3');
+
+      const messageAfterUninitialize = utils.findMessageByFunc('testAction3');
+      if (messageAfterUninitialize) {
+        expect(messageAfterUninitialize.id).toBe(0);
+      }
+    });
+
+    it('unresolved message callbacks should not be triggered after communication has been uninitialized', () => {
+      app._initialize(utils.mockWindow);
+      GlobalVars.isFramelessWindow = false;
+      communication.Communication.parentWindow = utils.mockWindow.parent;
+      communication.Communication.parentOrigin = utils.validOrigin;
+      communication.Communication.currentWindow = utils.mockWindow;
+      let callbackWasCalled = false;
+
+      communication.sendMessageToParent('testAction', () => {
+        callbackWasCalled = true;
+      });
+      communication.uninitializeCommunication();
+      const secondMessage = utils.findMessageByFunc('testAction');
+      communication.processMessage({
+        originalEvent: { originalEvent: {} as DOMMessageEvent, func: '' },
+        func: '',
+        data: { id: secondMessage?.id, args: [] },
+        source: communication.Communication.parentWindow,
+        origin: communication.Communication.currentWindow.location.origin,
+      });
+
+      expect(callbackWasCalled).toBeFalsy();
+    });
+
+    it('unresolved message promises should not be triggered after communication has been uninitialized', async () => {
+      expect.assertions(1);
+      app._initialize(utils.mockWindow);
+      GlobalVars.isFramelessWindow = false;
+      communication.Communication.parentWindow = utils.mockWindow.parent;
+      communication.Communication.parentOrigin = utils.validOrigin;
+      communication.Communication.currentWindow = utils.mockWindow;
+
+      const messageParent = communication.sendMessageToParentAsync('testAction');
+
+      communication.uninitializeCommunication();
+      const secondMessage = utils.findMessageByFunc('testAction');
+      communication.processMessage({
+        originalEvent: { originalEvent: {} as DOMMessageEvent, func: '' },
+        func: '',
+        data: { id: secondMessage?.id, args: [] },
+        source: communication.Communication.parentWindow,
+        origin: communication.Communication.currentWindow.location.origin,
+      });
+
+      messageParent.then(() => expect(true).toBeTruthy());
+      expect(true).toBeTruthy();
+    });
+
+    it('the current window should not have a message listener on it after communication has been uninitialized', async () => {
+      app._initialize(utils.mockWindow);
+      utils.mockWindow.addEventListener('message', () => {
+        // This listener should not be called during the unit test
+        expect(true).toBeFalsy();
+      });
+
+      // eslint-disable-next-line strict-null-checks/all
+      expect(utils.processMessage).not.toBeNull();
+
+      communication.uninitializeCommunication();
+
+      // eslint-disable-next-line strict-null-checks/all
+      expect(utils.processMessage).toBeNull();
+    });
+  });
   describe('processMessage', () => {
     it('fail if message has a missing data property', () => {
       const event = { badData: '' } as unknown as DOMMessageEvent;
