@@ -430,7 +430,7 @@ describe('Testing communication', () => {
         func: '',
         data: { id: secondMessage?.id, args: [] },
         source: communication.Communication.parentWindow,
-        origin: communication.Communication.currentWindow.location.origin,
+        origin: utils.mockWindow.location.origin,
       });
 
       expect(callbackWasCalled).toBeFalsy();
@@ -453,7 +453,7 @@ describe('Testing communication', () => {
         func: '',
         data: { id: secondMessage?.id, args: [] },
         source: communication.Communication.parentWindow,
-        origin: communication.Communication.currentWindow.location.origin,
+        origin: utils.mockWindow.location.origin,
       });
 
       messageParent.then(() => expect(true).toBeTruthy());
@@ -475,11 +475,155 @@ describe('Testing communication', () => {
       // eslint-disable-next-line strict-null-checks/all
       expect(utils.processMessage).toBeNull();
     });
+  });
+  describe('sendMessageToParentAsync', () => {
+    let utils: Utils = new Utils();
+    const actionName = 'test';
+    beforeEach(() => {
+      utils = new Utils();
+      communication.uninitializeCommunication();
+      app._initialize(utils.mockWindow);
+    });
+    afterAll(() => {
+      communication.Communication.currentWindow = utils.mockWindow;
+      communication.uninitializeCommunication();
+    });
+    it('should send framelessPostMessage to window when running in a frameless window and Communication.currentWindow is set and has a nativeInterface', () => {
+      GlobalVars.isFramelessWindow = true;
 
-    it('should throw if Communication.currentWindow is undefined', () => {
-      expect.assertions(1);
+      communication.sendMessageToParentAsync(actionName);
+
+      expect(utils.messages.length).toBe(1);
+      expect(utils.messages[0].id).toBe(0);
+      expect(utils.messages[0].func).toBe(actionName);
+    });
+    it('should receive response to framelessPostMessage when running in a frameless window and Communication.currentWindow is set and has a nativeInterface', async () => {
+      utils.mockWindow.parent = undefined;
+      communication.initializeCommunication(undefined);
+
+      const messagePromise = communication.sendMessageToParentAsync(actionName);
+
+      const sentMessage = utils.findMessageByFunc(actionName);
+      if (sentMessage === null) {
+        throw new Error('No sent message was found');
+      }
+      utils.respondToNativeMessage(sentMessage, false, []);
+
+      return expect(messagePromise).resolves;
+    });
+    it('should never send message if there is no Communication.currentWindow when message is sent', () => {
+      GlobalVars.isFramelessWindow = true;
       communication.Communication.currentWindow = undefined;
-      expect(communication.uninitializeCommunication).toThrow(TypeError);
+
+      communication.sendMessageToParentAsync(actionName);
+
+      expect(utils.messages.length).toBe(0);
+    });
+    it('should never receive response to framelessPostMessage if there is no Communication.currentWindow when message is sent', async () => {
+      utils.mockWindow.parent = undefined;
+      communication.initializeCommunication(undefined);
+      communication.Communication.currentWindow = undefined;
+
+      const messagePromise = communication.sendMessageToParentAsync(actionName);
+
+      utils.respondToNativeMessage({ id: 0, func: actionName }, false, []);
+
+      messagePromise.then(() => expect(true).toBeFalsy());
+    });
+    it('should never send message if there is no nativeInterface on the currentWindow when message is sent', () => {
+      GlobalVars.isFramelessWindow = true;
+      communication.Communication.currentWindow.nativeInterface = undefined;
+
+      communication.sendMessageToParentAsync(actionName);
+
+      expect(utils.messages.length).toBe(0);
+    });
+    it('should never receive response to framelessPostMessage if there is no nativeInterface on the currentWindow when message is sent', async () => {
+      utils.mockWindow.parent = undefined;
+      communication.initializeCommunication(undefined);
+      communication.Communication.currentWindow.nativeInterface = undefined;
+
+      const messagePromise = communication.sendMessageToParentAsync(actionName);
+
+      utils.respondToNativeMessage({ id: 0, func: actionName }, false, []);
+
+      messagePromise.then(() => expect(true).toBeFalsy());
+    });
+    it('args passed in should be sent with the framelessPostMessage', () => {
+      GlobalVars.isFramelessWindow = true;
+
+      const arg1 = 'testArg1';
+      communication.sendMessageToParentAsync(actionName, [arg1]);
+
+      expect(utils.messages.length).toBe(1);
+      if (utils.messages[0].args === undefined) {
+        throw new Error('args expected on message');
+      }
+      expect(utils.messages[0].args.length).toBe(1);
+      expect(utils.messages[0].args[0]).toBe(arg1);
+    });
+    it('should send a message to window when running in a framed window and Communication.parentWindow and Communication.parentOrigin are set', () => {
+      GlobalVars.isFramelessWindow = false;
+      communication.Communication.parentWindow = utils.mockWindow.parent;
+      communication.Communication.parentOrigin = utils.validOrigin;
+
+      communication.sendMessageToParentAsync(actionName);
+
+      expect(utils.messages.length).toBe(1);
+      expect(utils.messages[0].id).toBe(0);
+      expect(utils.messages[0].func).toBe(actionName);
+    });
+    it('should receive response to postMessage when running in a framed window and Communication.currentWindow has a parent with an origin', async () => {
+      communication.initializeCommunication(undefined);
+      const initializeMessage = utils.findInitializeMessageOrThrow();
+      utils.respondToMessage(initializeMessage);
+
+      const messagePromise = communication.sendMessageToParentAsync(actionName);
+
+      const sentMessage = utils.findMessageByFunc(actionName);
+      if (sentMessage === null) {
+        throw new Error('No sent message was found');
+      }
+      utils.respondToMessage(sentMessage, false, []);
+
+      return expect(messagePromise).resolves;
+    });
+    it('args passed in should be sent with the postMessage', () => {
+      communication.initializeCommunication(undefined);
+      const initializeMessage = utils.findInitializeMessageOrThrow();
+      utils.respondToMessage(initializeMessage);
+
+      const arg1 = 'testArg1';
+      communication.sendMessageToParentAsync(actionName, [arg1]);
+
+      const sentMessage = utils.findMessageByFunc(actionName);
+      if (sentMessage === null) {
+        throw new Error('No sent message was found');
+      }
+
+      if (sentMessage.args === undefined) {
+        throw new Error('args expected on message');
+      }
+      expect(sentMessage.args.length).toBe(1);
+      expect(sentMessage.args[0]).toBe(arg1);
+    });
+    it('should not send postMessage until after initialization response received', () => {
+      communication.initializeCommunication(undefined);
+      const initializeMessage = utils.findInitializeMessageOrThrow();
+
+      communication.sendMessageToParentAsync(actionName);
+
+      let sentMessage = utils.findMessageByFunc(actionName);
+      if (sentMessage !== null) {
+        throw new Error('Should not find a sent message until after the initialization response was received');
+      }
+
+      utils.respondToMessage(initializeMessage);
+
+      sentMessage = utils.findMessageByFunc(actionName);
+      if (sentMessage === null) {
+        throw new Error('Did not find any message even after initialization response was received');
+      }
     });
   });
   describe('processMessage', () => {
