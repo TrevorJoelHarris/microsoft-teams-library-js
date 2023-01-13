@@ -310,7 +310,9 @@ describe('Testing communication', () => {
       utils = new Utils();
     });
     afterEach(() => {
+      communication.Communication.currentWindow = utils.mockWindow;
       communication.uninitializeCommunication();
+      communication.Communication.currentWindow = undefined;
     });
     it('should set Communication.parentWindow to null', () => {
       app._initialize(utils.mockWindow);
@@ -472,6 +474,12 @@ describe('Testing communication', () => {
 
       // eslint-disable-next-line strict-null-checks/all
       expect(utils.processMessage).toBeNull();
+    });
+
+    it('should throw if Communication.currentWindow is undefined', () => {
+      expect.assertions(1);
+      communication.Communication.currentWindow = undefined;
+      expect(communication.uninitializeCommunication).toThrow(TypeError);
     });
   });
   describe('processMessage', () => {
