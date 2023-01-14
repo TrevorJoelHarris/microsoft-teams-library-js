@@ -626,6 +626,48 @@ describe('Testing communication', () => {
       }
     });
   });
+  describe('sendAndUnwrap', () => {
+    let utils: Utils = new Utils();
+    const actionName = 'test';
+    const actionName2 = 'test2';
+    beforeEach(() => {
+      utils = new Utils();
+      communication.uninitializeCommunication();
+      app._initialize(utils.mockWindow);
+    });
+    afterAll(() => {
+      communication.Communication.currentWindow = utils.mockWindow;
+      communication.uninitializeCommunication();
+    });
+    it('should unwrap response returned in an array and return it not in an array', async () => {
+      expect.assertions(2);
+      communication.initializeCommunication(undefined);
+      const initializeMessage = utils.findInitializeMessageOrThrow();
+      utils.respondToMessage(initializeMessage);
+
+      const messagePromise = communication.sendAndUnwrap(actionName);
+
+      const sentMessage = utils.findMessageByFunc(actionName);
+      if (sentMessage === null) {
+        throw new Error('No sent message was found');
+      }
+      utils.respondToMessage(sentMessage, actionName);
+
+      const response = await messagePromise;
+      expect(response).toBe(actionName);
+
+      const messagePromise2 = communication.sendMessageToParentAsync(actionName2);
+
+      const sentMessage2 = utils.findMessageByFunc(actionName2);
+      if (sentMessage2 === null) {
+        throw new Error('No sent message was found');
+      }
+      utils.respondToMessage(sentMessage2, actionName2);
+
+      const response2 = await messagePromise2;
+      expect(response2).toStrictEqual([actionName2]);
+    });
+  });
   describe('processMessage', () => {
     it('fail if message has a missing data property', () => {
       const event = { badData: '' } as unknown as DOMMessageEvent;
